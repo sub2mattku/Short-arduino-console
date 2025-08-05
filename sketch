@@ -1,0 +1,307 @@
+//code
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET     -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Joystick pins
+#define JOY_X A0
+#define JOY_Y A1
+#define JOY_BTN 8
+
+// App bar
+const int numApps = 4;
+int selectedGame = 0;
+unsigned long lastMoveTime = 0;
+const int moveDelay = 200;
+
+// App state
+enum AppState { HOME, COIN_GAME, SETTINGS, NOTES, PAINT };
+AppState currentApp = HOME;
+
+void setup() {
+  pinMode(JOY_BTN, INPUT_PULLUP);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.display();
+}
+
+void loop() {
+  switch (currentApp) {
+    case HOME:
+      handleJoystick();
+      drawHome();
+      if (digitalRead(JOY_BTN) == LOW) {
+        switch (selectedGame) {
+          case 0: currentApp = COIN_GAME; break;
+          case 1: currentApp = SETTINGS; break;
+          case 2: currentApp = NOTES; break;
+          case 3: currentApp = PAINT; break;
+        }
+        delay(300);
+      }
+      break;
+
+    case COIN_GAME:
+      runCoinGame();
+      break;
+
+    case SETTINGS:
+      runSettings();
+      break;
+
+    case NOTES:
+      runNotes();
+      break;
+
+    case PAINT:
+      runPaintApp();
+      break;
+  }
+
+  delay(100);
+}
+
+// 🧭 Joystick navigation
+void handleJoystick() {
+  int xVal = analogRead(JOY_X);
+  unsigned long now = millis();
+
+  if (now - lastMoveTime > moveDelay) {
+    if (xVal < 400) {
+      selectedGame = (selectedGame - 1 + numApps) % numApps;
+      lastMoveTime = now;
+    } else if (xVal > 600) {
+      selectedGame = (selectedGame + 1) % numApps;
+      lastMoveTime = now;
+    }
+  }
+}
+
+// 🏠 Home screen UI
+void drawHome() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(10, 0);
+  switch (selectedGame) {
+    case 0: display.print("Coin Game"); break;
+    case 1: display.print("Settings"); break;
+    case 2: display.print("Notes"); break;
+    case 3: display.print("Paint"); break;
+  }
+
+  for (int i = 0; i < numApps; i++) {
+    int x = 20 + i * 35;
+    int y = 20;
+    if (i == selectedGame) {
+      display.drawRect(x - 2, y - 2, 24, 24, SSD1306_WHITE);
+    }
+    drawIcon(i, x, y);
+  }
+
+  display.display();
+}
+
+// 🎨 Icon rendering
+void drawIcon(int index, int x, int y) {
+  switch (index) {
+    case 0:
+      display.fillCircle(x + 10, y + 10, 8, SSD1306_WHITE); // Coin
+      break;
+    case 1:
+      display.drawRect(x, y, 20, 20, SSD1306_WHITE); // Settings
+      display.drawLine(x + 5, y + 5, x + 15, y + 15, SSD1306_WHITE);
+      display.drawLine(x + 15, y + 5, x + 5, y + 15, SSD1306_WHITE);
+      break;
+    case 2:
+      display.setCursor(x + 2, y + 6);
+      display.print("TXT"); // Notes
+      break;
+    case 3:
+      display.drawRect(x + 2, y + 2, 16, 16, SSD1306_WHITE); // Canvas frame
+      display.drawPixel(x + 8, y + 8, SSD1306_WHITE);        // Brush dot
+      break;
+  }
+}
+
+// 🎮 Coin Collector Game
+void runCoinGame() {
+  static int playerX = 64;
+  static int playerY = 32;
+  static int coinX = random(10, 118);
+  static int coinY = random(10, 54);
+  static int score = 0;
+
+  int xVal = analogRead(JOY_X);
+  int yVal = analogRead(JOY_Y);
+
+  if (xVal < 400) playerX -= 2;
+  if (xVal > 600) playerX += 2;
+  if (yVal < 400) playerY -= 2;
+  if (yVal > 600) playerY += 2;
+
+  playerX = constrain(playerX, 0, SCREEN_WIDTH - 5);
+  playerY = constrain(playerY, 0, SCREEN_HEIGHT - 5);
+
+  if (abs(playerX - coinX) < 6 && abs(playerY - coinY) < 6) {
+    score++;
+    coinX = random(10, 118);
+    coinY = random(10, 54);
+  }
+
+  display.clearDisplay();
+  display.fillRect(playerX, playerY, 5, 5, SSD1306_WHITE);
+  display.drawCircle(coinX, coinY, 3, SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("Score: ");
+  display.print(score);
+  display.setCursor(0, 56);
+  display.print("Press to exit");
+  display.display();
+
+  if (digitalRead(JOY_BTN) == LOW) {
+    currentApp = HOME;
+    delay(300);
+  }
+}
+
+// ⚙️ Settings App
+void runSettings() {
+  static bool soundOn = true;
+  static bool toggled = false;
+
+  display.clearDisplay();
+  display.setCursor(10, 10);
+  display.print("Sound: ");
+  display.print(soundOn ? "ON" : "OFF");
+  display.setCursor(10, 30);
+  display.print("Press to toggle");
+  display.setCursor(10, 50);
+  display.print("Hold to exit");
+  display.display();
+
+  if (digitalRead(JOY_BTN) == LOW && !toggled) {
+    soundOn = !soundOn;
+    toggled = true;
+    delay(300);
+  } else if (digitalRead(JOY_BTN) == HIGH) {
+    toggled = false;
+  }
+
+  static unsigned long pressStart = 0;
+  if (digitalRead(JOY_BTN) == LOW) {
+    if (pressStart == 0) pressStart = millis();
+    if (millis() - pressStart > 1000) {
+      currentApp = HOME;
+      pressStart = 0;
+      delay(300);
+    }
+  } else {
+    pressStart = 0;
+  }
+}
+
+// 📝 Notes App
+void runNotes() {
+  static int noteIndex = 0;
+  const char* notes[] = {
+    "Build microSD next!",
+    "Try ESP32 soon?",
+    "Add paint app!",
+    "Joystick feels good :)"
+  };
+  const int totalNotes = sizeof(notes) / sizeof(notes[0]);
+
+  int xVal = analogRead(JOY_X);
+  if (xVal < 400) {
+    noteIndex = (noteIndex - 1 + totalNotes) % totalNotes;
+    delay(200);
+  } else if (xVal > 600) {
+    noteIndex = (noteIndex + 1) % totalNotes;
+    delay(200);
+  }
+
+  display.clearDisplay();
+  display.setCursor(10, 10);
+  display.print("Note ");
+  display.print(noteIndex + 1);
+  display.print("/");
+  display.print(totalNotes);
+  display.setCursor(10, 30);
+  display.print(notes[noteIndex]);
+  display.setCursor(10, 56);
+  display.print("Press to exit");
+  display.display();
+
+  if (digitalRead(JOY_BTN) == LOW) {
+    currentApp = HOME;
+    delay(300);
+  }
+}
+
+// 🎨 Paint App
+#define PIXEL_SIZE 8
+#define GRID_COLS (SCREEN_WIDTH / PIXEL_SIZE) // 16
+#define GRID_ROWS (SCREEN_HEIGHT / PIXEL_SIZE) // 8
+
+bool pixelGrid[GRID_ROWS][GRID_COLS] = {false}; // Now only 128 bytes
+
+void runPaintApp() {
+  static int cursorX = 0;
+  static int cursorY = 0;
+
+  int xVal = analogRead(JOY_X);
+  int yVal = analogRead(JOY_Y);
+
+  if (xVal < 400) cursorX = max(0, cursorX - 1);
+  if (xVal > 600) cursorX = min(GRID_COLS - 1, cursorX + 1);
+  if (yVal < 400) cursorY = max(0, cursorY - 1);
+  if (yVal > 600) cursorY = min(GRID_ROWS - 1, cursorY + 1);
+
+  if (digitalRead(JOY_BTN) == LOW) {
+    pixelGrid[cursorY][cursorX] = true;
+    delay(150); // debounce
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print(F("Paint App"));
+
+  // Draw canvas
+  for (int row = 0; row < GRID_ROWS; row++) {
+    for (int col = 0; col < GRID_COLS; col++) {
+      if (pixelGrid[row][col]) {
+        display.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, SSD1306_WHITE);
+      }
+    }
+  }
+
+  // Draw cursor
+  display.drawRect(cursorX * PIXEL_SIZE, cursorY * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE, SSD1306_WHITE);
+
+  display.setCursor(0, 56);
+  display.print(F("Hold to exit"));
+  display.display();
+
+  // Long press to exit
+  static unsigned long pressStart = 0;
+  if (digitalRead(JOY_BTN) == LOW) {
+    if (pressStart == 0) pressStart = millis();
+    if (millis() - pressStart > 1000) {
+      currentApp = HOME;
+      pressStart = 0;
+      delay(300);
+    }
+  } else {
+    pressStart = 0;
+  }
+}
+
+ 
